@@ -1,0 +1,7 @@
+server
+client
+*.sock
+*.bin
+nhan_*
+*.log
+test_data/
