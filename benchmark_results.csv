@@ -1,4 +1,0 @@
-size_MiB,elapsed_seconds,throughput_MiB_per_sec,integrity
-10,5.726,1.746,PASS
-50,28.466,1.756,PASS
-100,56.804,1.760,PASS

@@ -49,9 +49,7 @@ static inline int read_all(int fd, void *buf, size_t count) {
     while (total < count) {
         ssize_t n = read(fd, ptr + total, count - total);
         if (n <= 0) {
-            if (n < 0 && (errno == EINTR || errno == EAGAIN)) {
-                continue;
-            }
+            if (n < 0 && (errno == EINTR || errno == EAGAIN)) continue;
             return n;
         }
         total += n;
@@ -65,9 +63,7 @@ static inline int send_all(int fd, const void *buf, size_t count) {
     while (total < count) {
         ssize_t n = write(fd, ptr + total, count - total);
         if (n <= 0) {
-            if (n < 0 && (errno == EINTR || errno == EAGAIN)) {
-                continue;
-            }
+            if (n < 0 && (errno == EINTR || errno == EAGAIN)) continue;
             return n;
         }
         total += n;

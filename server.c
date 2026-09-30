@@ -8,6 +8,7 @@
 #include <sys/un.h>
 #include <poll.h>
 #include "protocol.h"
+#include "logger.h"
 
 typedef struct {
     int fd;
@@ -19,40 +20,20 @@ static ClientContext clients[MAX_CLIENTS];
 static struct pollfd fds[MAX_CLIENTS + 1];
 static int server_fd = -1;
 
+void server_log(const char *level, const char *msg) {
+    printf(ANSI_BLUE "[%s] " ANSI_RESET "%s\n", level, msg);
+    char buf[512];
+    snprintf(buf, sizeof(buf), "[%s] %s", level, msg);
+    write_server_log(buf);
+}
+
 void clean_up(int sig) {
     (void)sig;
+    write_server_log("[SERVER] Dọn dẹp tài nguyên và tắt Server.");
     printf("\n" ANSI_YELLOW "[SERVER] Đang dọn dẹp tài nguyên và tắt Server..." ANSI_RESET "\n");
     if (server_fd != -1) close(server_fd);
     unlink(SOCKET_PATH);
     exit(0);
-}
-
-int read_all(int fd, void *buf, size_t count) {
-    size_t total = 0;
-    char *ptr = (char *)buf;
-    while (total < count) {
-        ssize_t n = read(fd, ptr + total, count - total);
-        if (n <= 0) {
-            if (n < 0 && (errno == EINTR || errno == EAGAIN)) continue;
-            return n;
-        }
-        total += n;
-    }
-    return total;
-}
-
-int send_all(int fd, const void *buf, size_t count) {
-    size_t total = 0;
-    const char *ptr = (const char *)buf;
-    while (total < count) {
-        ssize_t n = write(fd, ptr + total, count - total);
-        if (n <= 0) {
-            if (n < 0 && (errno == EINTR || errno == EAGAIN)) continue;
-            return n;
-        }
-        total += n;
-    }
-    return total;
 }
 
 void broadcast_system(const char *msg) {
@@ -70,8 +51,14 @@ void broadcast_system(const char *msg) {
     }
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+    if (argc > 1 && strcmp(argv[1], "-d") == 0) {
+        daemonize();
+    }
+
+    write_server_log("Server đã khởi động thành công!");
     signal(SIGINT, clean_up);
+    signal(SIGTERM, clean_up);
     signal(SIGPIPE, SIG_IGN);
 
     unlink(SOCKET_PATH);
@@ -100,7 +87,9 @@ int main() {
     }
 
     printf(ANSI_GREEN "==========================================================" ANSI_RESET "\n");
-    printf(ANSI_GREEN "[SERVER] IPC Socket Server đang chạy tại: %s" ANSI_RESET "\n", SOCKET_PATH);
+    char start_msg[256];
+    snprintf(start_msg, sizeof(start_msg), "IPC Socket Server đang chạy tại: %s", SOCKET_PATH);
+    server_log("SERVER", start_msg);
     printf(ANSI_GREEN "==========================================================" ANSI_RESET "\n");
 
     for (int i = 0; i < MAX_CLIENTS; i++) {
@@ -138,13 +127,17 @@ int main() {
                         break;
                     }
                 }
+
                 if (slot != -1) {
                     clients[slot].fd = new_fd;
                     clients[slot].active = 1;
                     snprintf(clients[slot].name, NAME_LEN, "User%d", new_fd);
-                    printf(ANSI_CYAN "[SERVER] FD %d kết nối thành công." ANSI_RESET "\n", new_fd);
+
+                    char connect_msg[128];
+                    snprintf(connect_msg, sizeof(connect_msg), "Client FD %d đã kết nối.", new_fd);
+                    server_log("CONNECT", connect_msg);
                 } else {
-                    printf(ANSI_RED "[SERVER] Quá tải client, từ chối kết nối!" ANSI_RESET "\n");
+                    server_log("SERVER", "Đã đạt giới hạn Client, từ chối kết nối!");
                     close(new_fd);
                 }
             }
@@ -157,11 +150,12 @@ int main() {
             if (fds[cur_idx].revents & (POLLIN | POLLHUP | POLLERR)) {
                 PacketHeader hdr;
                 int n = read_all(clients[i].fd, &hdr, sizeof(hdr));
-                
+
                 if (n <= 0) {
                     char leave_msg[128];
                     snprintf(leave_msg, sizeof(leave_msg), "Thành viên [%s] đã rời phòng.", clients[i].name);
-                    printf(ANSI_YELLOW "[SERVER] %s" ANSI_RESET "\n", leave_msg);
+                    server_log("DISCONNECT", leave_msg);
+
                     close(clients[i].fd);
                     clients[i].active = 0;
                     broadcast_system(leave_msg);
@@ -169,28 +163,35 @@ int main() {
                     char *payload = NULL;
                     if (hdr.payload_len > 0) {
                         payload = (char *)malloc(hdr.payload_len);
-                        read_all(clients[i].fd, payload, hdr.payload_len);
+                        if (payload) {
+                            read_all(clients[i].fd, payload, hdr.payload_len);
+                        }
                     }
 
                     if (hdr.type == MSG_LOGIN) {
                         strncpy(clients[i].name, hdr.sender, NAME_LEN - 1);
                         char join_msg[128];
                         snprintf(join_msg, sizeof(join_msg), "Chào mừng [%s] tham gia hệ thống!", clients[i].name);
-                        printf(ANSI_CYAN "[SERVER] %s" ANSI_RESET "\n", join_msg);
+                        server_log("LOGIN", join_msg);
                         broadcast_system(join_msg);
-                    } 
+                    }
                     else if (hdr.type == MSG_CHAT_PUBLIC) {
-                        printf(ANSI_GREEN "[PUBLIC CHAT] [%s]: %.*s" ANSI_RESET "\n", 
-                               hdr.sender, hdr.payload_len, payload);
+                        char public_msg[BUFFER_SIZE + 64];
+                        snprintf(public_msg, sizeof(public_msg), "[%s]: %.*s", hdr.sender, hdr.payload_len, payload);
+                        server_log("PUBLIC", public_msg);
+
                         for (int j = 0; j < MAX_CLIENTS; j++) {
                             if (clients[j].active && clients[j].fd != clients[i].fd) {
                                 send_all(clients[j].fd, &hdr, sizeof(hdr));
                                 send_all(clients[j].fd, payload, hdr.payload_len);
                             }
                         }
-                    } 
-                    else if (hdr.type == MSG_CHAT_PRIVATE || hdr.type == MSG_FILE_START || 
-                             hdr.type == MSG_FILE_DATA || hdr.type == MSG_FILE_END) {
+                    }
+                    else if (hdr.type == MSG_CHAT_PRIVATE ||
+                             hdr.type == MSG_FILE_START ||
+                             hdr.type == MSG_FILE_DATA ||
+                             hdr.type == MSG_FILE_END) {
+
                         int sent = 0;
                         for (int j = 0; j < MAX_CLIENTS; j++) {
                             if (clients[j].active && strcmp(clients[j].name, hdr.target) == 0) {
@@ -202,14 +203,17 @@ int main() {
                                 break;
                             }
                         }
+
                         if (!sent && hdr.type == MSG_CHAT_PRIVATE) {
                             char err_msg[128];
                             snprintf(err_msg, sizeof(err_msg), "Không tìm thấy người dùng [%s].", hdr.target);
+
                             PacketHeader err_hdr;
                             memset(&err_hdr, 0, sizeof(err_hdr));
                             err_hdr.type = MSG_SYSTEM_NOTIFY;
                             err_hdr.payload_len = strlen(err_msg);
                             strncpy(err_hdr.sender, "SERVER", NAME_LEN - 1);
+
                             send_all(clients[i].fd, &err_hdr, sizeof(err_hdr));
                             send_all(clients[i].fd, err_msg, err_hdr.payload_len);
                         }

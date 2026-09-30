@@ -12,39 +12,10 @@
 
 static int sock_fd = -1;
 static char my_name[NAME_LEN];
-
 static FILE *rx_file = NULL;
 static uint64_t rx_filesize = 0;
 static uint64_t rx_received = 0;
 static char rx_filename[64];
-
-int read_all(int fd, void *buf, size_t count) {
-    size_t total = 0;
-    char *ptr = (char *)buf;
-    while (total < count) {
-        ssize_t n = read(fd, ptr + total, count - total);
-        if (n <= 0) {
-            if (n < 0 && (errno == EINTR || errno == EAGAIN)) continue;
-            return n;
-        }
-        total += n;
-    }
-    return total;
-}
-
-int send_all(int fd, const void *buf, size_t count) {
-    size_t total = 0;
-    const char *ptr = (const char *)buf;
-    while (total < count) {
-        ssize_t n = write(fd, ptr + total, count - total);
-        if (n <= 0) {
-            if (n < 0 && (errno == EINTR || errno == EAGAIN)) continue;
-            return n;
-        }
-        total += n;
-    }
-    return total;
-}
 
 void draw_progress_bar(uint64_t current, uint64_t total) {
     int bar_width = 30;
@@ -106,7 +77,7 @@ void send_file(const char *target, const char *filepath) {
 
         total_sent += bytes_read;
         draw_progress_bar(total_sent, total_size);
-        usleep(1000);
+        usleep(500);
     }
     fclose(f);
 
