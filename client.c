@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -214,6 +215,10 @@ int main(int argc, char *argv[]) {
                 rx_filesize = fi->filesize;
                 rx_received = 0;
                 snprintf(rx_filename, sizeof(rx_filename), "nhan_%s", fi->filename);
+                if (rx_file) {
+                    fclose(rx_file);
+                    rx_file = NULL;
+                }
                 rx_file = fopen(rx_filename, "wb");
                 printf("\n" ANSI_CYAN "[FILE NHẬN] Đang nhận file '%s' (%lu bytes) từ [%s]..." ANSI_RESET "\n", 
                        fi->filename, rx_filesize, hdr.sender);
@@ -237,6 +242,10 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    if (rx_file) {
+        fclose(rx_file);
+        rx_file = NULL;
+    }
     close(sock_fd);
     return 0;
 }
