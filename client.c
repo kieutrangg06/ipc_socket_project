@@ -19,7 +19,7 @@ static char my_name[NAME_LEN];
 static FILE *rx_file = NULL;
 static uint64_t rx_filesize = 0;
 static uint64_t rx_received = 0;
-static char rx_filename[64];
+static char rx_filename[128]; // Đã tăng lên 128 byte để chứa thoải mái tiền tố "nhan_" + tên file
 
 void draw_progress_bar(uint64_t current, uint64_t total) {
     int bar_width = 30;
