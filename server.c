@@ -1,4 +1,7 @@
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -49,7 +52,7 @@ void broadcast_system(const char *msg) {
     memset(&hdr, 0, sizeof(hdr));
     hdr.type = MSG_SYSTEM_NOTIFY;
     hdr.payload_len = strlen(msg);
-    strncpy(hdr.sender, "SERVER", NAME_LEN - 1);
+    snprintf(hdr.sender, sizeof(hdr.sender), "SERVER");
 
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].active) {
@@ -80,7 +83,7 @@ int main(int argc, char *argv[]) {
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, SOCKET_PATH, sizeof(addr.sun_path) - 1);
+    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", SOCKET_PATH);
 
     if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         perror("Bind thất bại");
@@ -177,7 +180,7 @@ int main(int argc, char *argv[]) {
                     }
 
                     if (hdr.type == MSG_LOGIN) {
-                        strncpy(clients[i].name, hdr.sender, NAME_LEN - 1);
+                        snprintf(clients[i].name, sizeof(clients[i].name), "%s", hdr.sender);
                         char join_msg[128];
                         snprintf(join_msg, sizeof(join_msg), "Chào mừng [%s] tham gia hệ thống!", clients[i].name);
                         server_log("LOGIN", join_msg);
@@ -220,7 +223,7 @@ int main(int argc, char *argv[]) {
                             memset(&err_hdr, 0, sizeof(err_hdr));
                             err_hdr.type = MSG_SYSTEM_NOTIFY;
                             err_hdr.payload_len = strlen(err_msg);
-                            strncpy(err_hdr.sender, "SERVER", NAME_LEN - 1);
+                            snprintf(err_hdr.sender, sizeof(err_hdr.sender), "SERVER");
 
                             send_all(clients[i].fd, &err_hdr, sizeof(err_hdr));
                             send_all(clients[i].fd, err_msg, err_hdr.payload_len);
