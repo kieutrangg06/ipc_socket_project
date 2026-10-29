@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,6 +33,13 @@ void clean_up(int sig) {
     write_server_log("[SERVER] Dọn dẹp tài nguyên và tắt Server.");
     printf("\n" ANSI_YELLOW "[SERVER] Đang dọn dẹp tài nguyên và tắt Server..." ANSI_RESET "\n");
     if (server_fd != -1) close(server_fd);
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (clients[i].active && clients[i].fd != -1) {
+            close(clients[i].fd);
+            clients[i].fd = -1;
+            clients[i].active = 0;
+        }
+    }
     unlink(SOCKET_PATH);
     exit(0);
 }
