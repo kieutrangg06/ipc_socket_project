@@ -1,4 +1,7 @@
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -50,15 +53,15 @@ void send_file(const char *target, const char *filepath) {
 
     FileInfoPayload finfo;
     memset(&finfo, 0, sizeof(finfo));
-    strncpy(finfo.filename, base_filename, sizeof(finfo.filename) - 1);
+    snprintf(finfo.filename, sizeof(finfo.filename), "%s", base_filename);
     finfo.filesize = total_size;
 
     PacketHeader hdr;
     memset(&hdr, 0, sizeof(hdr));
     hdr.type = MSG_FILE_START;
     hdr.payload_len = sizeof(finfo);
-    strncpy(hdr.sender, my_name, NAME_LEN - 1);
-    strncpy(hdr.target, target, NAME_LEN - 1);
+    snprintf(hdr.sender, sizeof(hdr.sender), "%s", my_name);
+    snprintf(hdr.target, sizeof(hdr.target), "%s", target);
 
     send_all(sock_fd, &hdr, sizeof(hdr));
     send_all(sock_fd, &finfo, sizeof(finfo));
@@ -94,7 +97,7 @@ int main(int argc, char *argv[]) {
         printf("Sử dụng: %s <Nickname>\n", argv[0]);
         return 1;
     }
-    strncpy(my_name, argv[1], NAME_LEN - 1);
+    snprintf(my_name, sizeof(my_name), "%s", argv[1]);
 
     sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sock_fd < 0) {
@@ -105,7 +108,7 @@ int main(int argc, char *argv[]) {
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, SOCKET_PATH, sizeof(addr.sun_path) - 1);
+    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", SOCKET_PATH);
 
     if (connect(sock_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         perror("Kết nối tới Server thất bại (Server đã bật chưa?)");
@@ -117,7 +120,7 @@ int main(int argc, char *argv[]) {
     memset(&login_hdr, 0, sizeof(login_hdr));
     login_hdr.type = MSG_LOGIN;
     login_hdr.payload_len = 0;
-    strncpy(login_hdr.sender, my_name, NAME_LEN - 1);
+    snprintf(login_hdr.sender, sizeof(login_hdr.sender), "%s", my_name);
     send_all(sock_fd, &login_hdr, sizeof(login_hdr));
 
     printf(ANSI_GREEN "Đã kết nối thành công với Nickname: %s" ANSI_RESET "\n", my_name);
@@ -155,8 +158,8 @@ int main(int argc, char *argv[]) {
                     memset(&hdr, 0, sizeof(hdr));
                     hdr.type = MSG_CHAT_PRIVATE;
                     hdr.payload_len = strlen(msg);
-                    strncpy(hdr.sender, my_name, NAME_LEN - 1);
-                    strncpy(hdr.target, target, NAME_LEN - 1);
+                    snprintf(hdr.sender, sizeof(hdr.sender), "%s", my_name);
+                    snprintf(hdr.target, sizeof(hdr.target), "%s", target);
 
                     send_all(sock_fd, &hdr, sizeof(hdr));
                     send_all(sock_fd, msg, hdr.payload_len);
@@ -179,7 +182,7 @@ int main(int argc, char *argv[]) {
                 memset(&hdr, 0, sizeof(hdr));
                 hdr.type = MSG_CHAT_PUBLIC;
                 hdr.payload_len = strlen(line_buf);
-                strncpy(hdr.sender, my_name, NAME_LEN - 1);
+                snprintf(hdr.sender, sizeof(hdr.sender), "%s", my_name);
 
                 send_all(sock_fd, &hdr, sizeof(hdr));
                 send_all(sock_fd, line_buf, hdr.payload_len);
