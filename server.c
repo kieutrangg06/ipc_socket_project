@@ -62,6 +62,17 @@ void broadcast_system(const char *msg) {
     }
 }
 
+// Bỏ qua phần payload lỗi để bảo vệ tính đồng bộ Framing của luồng Socket
+static void drain_socket(int fd, size_t len) {
+    char junk[1024];
+    while (len > 0) {
+        size_t to_read = (len < sizeof(junk)) ? len : sizeof(junk);
+        int r = read_all(fd, junk, to_read);
+        if (r <= 0) break;
+        len -= r;
+    }
+}
+
 int main(int argc, char *argv[]) {
     if (argc > 1 && strcmp(argv[1], "-d") == 0) {
         daemonize();
@@ -70,7 +81,7 @@ int main(int argc, char *argv[]) {
     write_server_log("Server đã khởi động thành công!");
     signal(SIGINT, clean_up);
     signal(SIGTERM, clean_up);
-    signal(SIGPIPE, SIG_IGN);
+    signal(SIGPIPE, SIG_IGN); // Bỏ qua SIGPIPE tránh crash tiến trình khi ghi vào socket đã đóng
 
     unlink(SOCKET_PATH);
 
@@ -128,6 +139,7 @@ int main(int argc, char *argv[]) {
             break;
         }
 
+        // Chấp nhận kết nối mới
         if (fds[0].revents & POLLIN) {
             int new_fd = accept(server_fd, NULL, NULL);
             if (new_fd >= 0) {
@@ -154,6 +166,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        // Xử lý sự kiện từ các Client
         int cur_idx = 1;
         for (int i = 0; i < MAX_CLIENTS; i++) {
             if (!clients[i].active) continue;
@@ -173,14 +186,38 @@ int main(int argc, char *argv[]) {
                 } else {
                     char *payload = NULL;
                     if (hdr.payload_len > 0) {
+                        if (hdr.payload_len > MAX_PAYLOAD_SIZE) {
+                            drain_socket(clients[i].fd, hdr.payload_len);
+                            cur_idx++;
+                            continue;
+                        }
                         payload = (char *)malloc(hdr.payload_len);
                         if (payload) {
                             read_all(clients[i].fd, payload, hdr.payload_len);
+                        } else {
+                            drain_socket(clients[i].fd, hdr.payload_len);
+                            cur_idx++;
+                            continue;
                         }
                     }
 
                     if (hdr.type == MSG_LOGIN) {
-                        snprintf(clients[i].name, sizeof(clients[i].name), "%s", hdr.sender);
+                        // Kiểm tra trùng Nickname
+                        int duplicate = 0;
+                        for (int j = 0; j < MAX_CLIENTS; j++) {
+                            if (clients[j].active && j != i && strcmp(clients[j].name, hdr.sender) == 0) {
+                                duplicate = 1;
+                                break;
+                            }
+                        }
+
+                        if (duplicate) {
+                            // Tự động thêm hậu tố phân biệt nếu bị trùng
+                            snprintf(clients[i].name, sizeof(clients[i].name), "%s_%d", hdr.sender, clients[i].fd);
+                        } else {
+                            snprintf(clients[i].name, sizeof(clients[i].name), "%s", hdr.sender);
+                        }
+
                         char join_msg[128];
                         snprintf(join_msg, sizeof(join_msg), "Chào mừng [%s] tham gia hệ thống!", clients[i].name);
                         server_log("LOGIN", join_msg);
@@ -188,7 +225,7 @@ int main(int argc, char *argv[]) {
                     }
                     else if (hdr.type == MSG_CHAT_PUBLIC) {
                         char public_msg[BUFFER_SIZE + 64];
-                        snprintf(public_msg, sizeof(public_msg), "[%s]: %.*s", hdr.sender, hdr.payload_len, payload);
+                        snprintf(public_msg, sizeof(public_msg), "[%s]: %.*s", hdr.sender, (int)hdr.payload_len, payload);
                         server_log("PUBLIC", public_msg);
 
                         for (int j = 0; j < MAX_CLIENTS; j++) {
