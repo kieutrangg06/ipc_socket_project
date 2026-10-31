@@ -15,13 +15,21 @@
 
 #define LOG_FILE "server.log"
 
+// Khởi tạo tiến trình ngầm với kỹ thuật Double-Fork chuẩn POSIX
 static inline void daemonize() {
     pid_t pid = fork();
     if (pid < 0) exit(EXIT_FAILURE);
-    if (pid > 0) exit(EXIT_SUCCESS);
+    if (pid > 0) exit(EXIT_SUCCESS); // Tiến trình cha 1 kết thúc, trả prompt cho Terminal
 
-    if (setsid() < 0) exit(EXIT_FAILURE);
+    if (setsid() < 0) exit(EXIT_FAILURE); // Tạo Session mới, tách khỏi Controlling Terminal
 
+    pid = fork(); // Lần fork thứ 2: Đảm bảo tiến trình không phải Session Leader
+    if (pid < 0) exit(EXIT_FAILURE);
+    if (pid > 0) exit(EXIT_SUCCESS); // Tiến trình cha 2 kết thúc
+
+    umask(0);
+
+    // Chuyển hướng stdin, stdout, stderr vào /dev/null
     int fd = open("/dev/null", O_RDWR);
     if (fd >= 0) {
         dup2(fd, STDIN_FILENO);
@@ -31,13 +39,14 @@ static inline void daemonize() {
     }
 }
 
+// Ghi nhật ký an toàn đa tiến trình bằng fcntl Record Locking
 static inline void write_server_log(const char *message) {
     int fd = open(LOG_FILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd < 0) return;
 
     struct flock fl;
     memset(&fl, 0, sizeof(fl));
-    fl.l_type = F_WRLCK;
+    fl.l_type = F_WRLCK; // Khóa ghi độc quyền
     fl.l_whence = SEEK_SET;
     fl.l_start = 0;
     fl.l_len = 0;
@@ -50,7 +59,7 @@ static inline void write_server_log(const char *message) {
 
         dprintf(fd, "[%s] %s\n", time_buf, message);
 
-        fl.l_type = F_UNLCK;
+        fl.l_type = F_UNLCK; // Mở khóa
         fcntl(fd, F_SETLK, &fl);
     }
 
