@@ -13,7 +13,7 @@ RECEIVER_FIFO="benchmark_receiver.in"
 
 if [ ! -S /tmp/ipc_chat_system.sock ]; then
     echo "ERROR: Server chua chay!"
-    echo "Hay khoi dong ./server truoc khi chay benchmark."
+    echo "Hay khoi dong ./server -d truoc khi chay benchmark."
     exit 1
 fi
 
@@ -33,12 +33,13 @@ mkfifo "$SENDER_FIFO" "$RECEIVER_FIFO"
 exec 3<> "$RECEIVER_FIFO"
 exec 4<> "$SENDER_FIFO"
 
-stdbuf -oL ./client An < "$RECEIVER_FIFO" > "$RECEIVER_LOG" 2>&1 &
+# Sử dụng tên độc lập BenchReceiver và BenchSender để không bị trùng tên với Client đang mở ở Ô 2, Ô 3
+stdbuf -oL ./client BenchReceiver < "$RECEIVER_FIFO" > "$RECEIVER_LOG" 2>&1 &
 RX_PID=$!
 
 sleep 0.5
 
-stdbuf -oL ./client Truong < "$SENDER_FIFO" > "$SENDER_LOG" 2>&1 &
+stdbuf -oL ./client BenchSender < "$SENDER_FIFO" > "$SENDER_LOG" 2>&1 &
 TX_PID=$!
 
 cleanup() {
@@ -50,7 +51,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "Dang cho hai client ket noi..."
+echo "Dang cho hai client benchmark ket noi..."
 CONNECTED=0
 for i in $(seq 1 100); do
     if grep -q "Đã kết nối thành công" "$SENDER_LOG" &&
@@ -62,16 +63,17 @@ for i in $(seq 1 100); do
 done
 
 if [ "$CONNECTED" -ne 1 ]; then
-    echo "ERROR: Client khong ket noi duoc."
+    echo "ERROR: Client benchmark khong ket noi duoc."
     exit 1
 fi
 
-echo "Hai client da ket noi thanh cong."
+echo "Hai client benchmark da ket noi thanh cong."
 echo "size_MiB,elapsed_seconds,throughput_MiB_per_sec,integrity" > "$RESULTS"
 
 for size in "${SIZES[@]}"; do
     FILE="test_${size}MB.bin"
     RECEIVED="nhan_${FILE}"
+    rm -f "$RECEIVED"
 
     SEND_BEFORE=$(grep -c "Đã gửi file thành công" "$SENDER_LOG" || true)
     RECEIVE_BEFORE=$(grep -c "File đã lưu thành" "$RECEIVER_LOG" || true)
@@ -79,7 +81,7 @@ for size in "${SIZES[@]}"; do
     echo "Dang truyen file ${size} MiB..."
     START=$(date +%s.%N)
 
-    printf '/sendfile An %s\n' "$FILE" >&4
+    printf '/sendfile BenchReceiver %s\n' "$FILE" >&4
 
     DONE=0
     for i in $(seq 1 3600); do
