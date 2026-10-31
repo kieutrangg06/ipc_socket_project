@@ -1,6 +1,10 @@
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include <stdint.h>
 #include <unistd.h>
 #include <errno.h>
@@ -10,6 +14,7 @@
 #define MAX_CLIENTS 32
 #define NAME_LEN 32
 #define CHUNK_SIZE 2048
+#define MAX_PAYLOAD_SIZE (10 * 1024 * 1024) // Giới hạn gói tin tối đa 10MB tránh cạn RAM
 
 typedef enum {
     MSG_LOGIN = 1,
@@ -23,16 +28,16 @@ typedef enum {
 
 #pragma pack(push, 1)
 typedef struct {
-    uint32_t type;
-    uint32_t payload_len;
-    char sender[NAME_LEN];
-    char target[NAME_LEN];
-} PacketHeader;
+    uint32_t type;         // 4 bytes
+    uint32_t payload_len;  // 4 bytes
+    char sender[NAME_LEN]; // 32 bytes
+    char target[NAME_LEN]; // 32 bytes
+} PacketHeader;            // Tổng kích thước đúng 72 bytes
 
 typedef struct {
-    char filename[64];
-    uint64_t filesize;
-} FileInfoPayload;
+    char filename[64];     // 64 bytes
+    uint64_t filesize;     // 8 bytes
+} FileInfoPayload;         // Tổng kích thước đúng 72 bytes
 #pragma pack(pop)
 
 #define ANSI_RESET   "\033[0m"
