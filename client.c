@@ -19,7 +19,7 @@ static char my_name[NAME_LEN];
 static FILE *rx_file = NULL;
 static uint64_t rx_filesize = 0;
 static uint64_t rx_received = 0;
-static char rx_filename[128]; // Đã tăng lên 128 byte để chứa thoải mái tiền tố "nhan_" + tên file
+static char rx_filename[128];
 
 void draw_progress_bar(uint64_t current, uint64_t total) {
     int bar_width = 30;
@@ -45,7 +45,11 @@ void send_file(const char *target, const char *filepath) {
     }
 
     struct stat st;
-    stat(filepath, &st);
+    if (stat(filepath, &st) < 0) {
+        perror("Lỗi stat file");
+        fclose(f);
+        return;
+    }
     uint64_t total_size = st.st_size;
 
     const char *base_filename = strrchr(filepath, '/');
@@ -69,7 +73,7 @@ void send_file(const char *target, const char *filepath) {
     printf(ANSI_CYAN "[GỬI FILE] Bắt đầu gửi file '%s' (%lu bytes) tới [%s]..." ANSI_RESET "\n", 
            base_filename, total_size, target);
 
-    char buffer[2048];
+    char buffer[CHUNK_SIZE];
     size_t bytes_read = 0;
     uint64_t total_sent = 0;
 
@@ -81,7 +85,7 @@ void send_file(const char *target, const char *filepath) {
 
         total_sent += bytes_read;
         draw_progress_bar(total_sent, total_size);
-        usleep(500);
+        usleep(400); // Điều tiết tốc độ để progress bar hiển thị mượt mà
     }
     fclose(f);
 
@@ -153,7 +157,8 @@ int main(int argc, char *argv[]) {
             if (strncmp(line_buf, "/msg ", 5) == 0) {
                 char target[NAME_LEN];
                 char msg[BUFFER_SIZE];
-                if (sscanf(line_buf + 5, "%s %[^\n]", target, msg) == 2) {
+                // Sử dụng width specifier để chống Buffer Overflow
+                if (sscanf(line_buf + 5, "%31s %4095[^\n]", target, msg) == 2) {
                     PacketHeader hdr;
                     memset(&hdr, 0, sizeof(hdr));
                     hdr.type = MSG_CHAT_PRIVATE;
@@ -171,7 +176,7 @@ int main(int argc, char *argv[]) {
             else if (strncmp(line_buf, "/sendfile ", 10) == 0) {
                 char target[NAME_LEN];
                 char filepath[256];
-                if (sscanf(line_buf + 10, "%s %s", target, filepath) == 2) {
+                if (sscanf(line_buf + 10, "%31s %255s", target, filepath) == 2) {
                     send_file(target, filepath);
                 } else {
                     printf(ANSI_RED "Sai cú pháp! Dùng: /sendfile <tên> <đường_dẫn_file>" ANSI_RESET "\n");
@@ -200,20 +205,22 @@ int main(int argc, char *argv[]) {
             char *payload = NULL;
             if (hdr.payload_len > 0) {
                 payload = (char *)malloc(hdr.payload_len + 1);
-                read_all(sock_fd, payload, hdr.payload_len);
-                payload[hdr.payload_len] = '\0';
+                if (payload) {
+                    read_all(sock_fd, payload, hdr.payload_len);
+                    payload[hdr.payload_len] = '\0';
+                }
             }
 
-            if (hdr.type == MSG_SYSTEM_NOTIFY) {
+            if (hdr.type == MSG_SYSTEM_NOTIFY && payload) {
                 printf(ANSI_YELLOW "[HỆ THỐNG] %s" ANSI_RESET "\n", payload);
             } 
-            else if (hdr.type == MSG_CHAT_PUBLIC) {
+            else if (hdr.type == MSG_CHAT_PUBLIC && payload) {
                 printf(ANSI_GREEN "[%s]:" ANSI_RESET " %s\n", hdr.sender, payload);
             } 
-            else if (hdr.type == MSG_CHAT_PRIVATE) {
+            else if (hdr.type == MSG_CHAT_PRIVATE && payload) {
                 printf(ANSI_MAGENTA "[RIÊNG từ %s]: %s" ANSI_RESET "\n", hdr.sender, payload);
             } 
-            else if (hdr.type == MSG_FILE_START) {
+            else if (hdr.type == MSG_FILE_START && payload) {
                 FileInfoPayload *fi = (FileInfoPayload *)payload;
                 rx_filesize = fi->filesize;
                 rx_received = 0;
@@ -226,7 +233,7 @@ int main(int argc, char *argv[]) {
                 printf("\n" ANSI_CYAN "[FILE NHẬN] Đang nhận file '%s' (%lu bytes) từ [%s]..." ANSI_RESET "\n", 
                        fi->filename, rx_filesize, hdr.sender);
             } 
-            else if (hdr.type == MSG_FILE_DATA) {
+            else if (hdr.type == MSG_FILE_DATA && payload) {
                 if (rx_file) {
                     fwrite(payload, 1, hdr.payload_len, rx_file);
                     rx_received += hdr.payload_len;
