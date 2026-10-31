@@ -213,7 +213,7 @@ int main(int argc, char *argv[]) {
 
                         if (duplicate) {
                             // Tự động thêm hậu tố phân biệt nếu bị trùng
-                            snprintf(clients[i].name, sizeof(clients[i].name), "%s_%d", hdr.sender, clients[i].fd);
+                           snprintf(clients[i].name, sizeof(clients[i].name), "%.20s_%d", hdr.sender, clients[i].fd);
                         } else {
                             snprintf(clients[i].name, sizeof(clients[i].name), "%s", hdr.sender);
                         }
