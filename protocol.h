@@ -14,7 +14,7 @@
 #define MAX_CLIENTS 32
 #define NAME_LEN 32
 #define CHUNK_SIZE 2048
-#define MAX_PAYLOAD_SIZE (10 * 1024 * 1024) // Giới hạn gói tin tối đa 10MB tránh cạn RAM
+#define MAX_PAYLOAD_SIZE (10 * 1024 * 1024) // Maximum payload limit: 10MB to prevent memory exhaustion (Anti-DoS)
 
 typedef enum {
     MSG_LOGIN = 1,
@@ -28,16 +28,16 @@ typedef enum {
 
 #pragma pack(push, 1)
 typedef struct {
-    uint32_t type;         // 4 bytes
-    uint32_t payload_len;  // 4 bytes
-    char sender[NAME_LEN]; // 32 bytes
-    char target[NAME_LEN]; // 32 bytes
-} PacketHeader;            // Tổng kích thước đúng 72 bytes
+    uint32_t type;         // 4 bytes: MessageType opcode (1 - 7)
+    uint32_t payload_len;  // 4 bytes: Length of trailing payload
+    char sender[NAME_LEN]; // 32 bytes: Sender nickname
+    char target[NAME_LEN]; // 32 bytes: Target recipient nickname
+} PacketHeader;            // Exactly 72 bytes packed
 
 typedef struct {
-    char filename[64];     // 64 bytes
-    uint64_t filesize;     // 8 bytes
-} FileInfoPayload;         // Tổng kích thước đúng 72 bytes
+    char filename[64];     // 64 bytes: Base filename
+    uint64_t filesize;     // 8 bytes: Total byte length
+} FileInfoPayload;         // Exactly 72 bytes packed
 #pragma pack(pop)
 
 #define ANSI_RESET   "\033[0m"
@@ -48,6 +48,7 @@ typedef struct {
 #define ANSI_MAGENTA "\033[1;35m"
 #define ANSI_CYAN    "\033[1;36m"
 
+// Atomic read primitive: loops until all requested bytes are committed
 static inline int read_all(int fd, void *buf, size_t count) {
     size_t total = 0;
     char *ptr = (char *)buf;
@@ -62,6 +63,7 @@ static inline int read_all(int fd, void *buf, size_t count) {
     return (int)total;
 }
 
+// Atomic send primitive: handles signal interruptions and partial writes
 static inline int send_all(int fd, const void *buf, size_t count) {
     size_t total = 0;
     const char *ptr = (const char *)buf;
