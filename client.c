@@ -26,7 +26,7 @@ void draw_progress_bar(uint64_t current, uint64_t total) {
     float progress = (total == 0) ? 1.0f : (float)current / total;
     int pos = (int)(bar_width * progress);
 
-    printf("\r" ANSI_MAGENTA "Tiến trình tải: [" ANSI_RESET);
+    printf("\r" ANSI_MAGENTA "Progress: [" ANSI_RESET);
     for (int i = 0; i < bar_width; ++i) {
         if (i < pos) printf(ANSI_GREEN "=" ANSI_RESET);
         else if (i == pos) printf(ANSI_GREEN ">" ANSI_RESET);
@@ -40,13 +40,13 @@ void draw_progress_bar(uint64_t current, uint64_t total) {
 void send_file(const char *target, const char *filepath) {
     FILE *f = fopen(filepath, "rb");
     if (!f) {
-        printf(ANSI_RED "[LỖI] Không thể mở file: %s" ANSI_RESET "\n", filepath);
+        printf(ANSI_RED "[ERROR] Cannot open file: %s" ANSI_RESET "\n", filepath);
         return;
     }
 
     struct stat st;
     if (stat(filepath, &st) < 0) {
-        perror("Lỗi stat file");
+        perror("File stat error");
         fclose(f);
         return;
     }
@@ -70,7 +70,7 @@ void send_file(const char *target, const char *filepath) {
     send_all(sock_fd, &hdr, sizeof(hdr));
     send_all(sock_fd, &finfo, sizeof(finfo));
 
-    printf(ANSI_CYAN "[GỬI FILE] Bắt đầu gửi file '%s' (%lu bytes) tới [%s]..." ANSI_RESET "\n", 
+    printf(ANSI_CYAN "[FILE_SEND] Initiating file transmission: '%s' (%lu bytes) to [%s]..." ANSI_RESET "\n", 
            base_filename, total_size, target);
 
     char buffer[CHUNK_SIZE];
@@ -85,7 +85,7 @@ void send_file(const char *target, const char *filepath) {
 
         total_sent += bytes_read;
         draw_progress_bar(total_sent, total_size);
-        usleep(400); // Điều tiết tốc độ để progress bar hiển thị mượt mà
+        usleep(400); // Visual pacing: throttles rendering speed for smooth ANSI terminal UI
     }
     fclose(f);
 
@@ -93,19 +93,19 @@ void send_file(const char *target, const char *filepath) {
     hdr.payload_len = 0;
     send_all(sock_fd, &hdr, sizeof(hdr));
 
-    printf(ANSI_GREEN "[GỬI FILE] Đã gửi file thành công!" ANSI_RESET "\n");
+    printf(ANSI_GREEN "[FILE_SEND] File sent successfully!" ANSI_RESET "\n");
 }
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        printf("Sử dụng: %s <Nickname>\n", argv[0]);
+        printf("Usage: %s <Nickname>\n", argv[0]);
         return 1;
     }
     snprintf(my_name, sizeof(my_name), "%s", argv[1]);
 
     sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sock_fd < 0) {
-        perror("Tạo Socket lỗi");
+        perror("Socket creation failed");
         exit(EXIT_FAILURE);
     }
 
@@ -115,7 +115,7 @@ int main(int argc, char *argv[]) {
     snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", SOCKET_PATH);
 
     if (connect(sock_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        perror("Kết nối tới Server thất bại (Server đã bật chưa?)");
+        perror("Connection to server failed (Is server running?)");
         close(sock_fd);
         exit(EXIT_FAILURE);
     }
@@ -127,11 +127,11 @@ int main(int argc, char *argv[]) {
     snprintf(login_hdr.sender, sizeof(login_hdr.sender), "%s", my_name);
     send_all(sock_fd, &login_hdr, sizeof(login_hdr));
 
-    printf(ANSI_GREEN "Đã kết nối thành công với Nickname: %s" ANSI_RESET "\n", my_name);
-    printf("Hướng dẫn:\n");
-    printf(" - Chat thông thường: Nhập nội dung rồi nhấn Enter\n");
-    printf(" - Chat riêng: " ANSI_YELLOW "/msg <tên> <nội dung>" ANSI_RESET "\n");
-    printf(" - Gửi file:   " ANSI_YELLOW "/sendfile <tên> <đường_dẫn_file>" ANSI_RESET "\n\n");
+    printf(ANSI_GREEN "Successfully connected with Nickname: %s" ANSI_RESET "\n", my_name);
+    printf("Command Usage:\n");
+    printf(" - Public chat:     Type message and press Enter\n");
+    printf(" - Private whisper: " ANSI_YELLOW "/msg <target> <message>" ANSI_RESET "\n");
+    printf(" - File transfer:   " ANSI_YELLOW "/sendfile <target> <filepath>" ANSI_RESET "\n\n");
 
     struct pollfd pfds[2];
     pfds[0].fd = STDIN_FILENO;
@@ -157,7 +157,7 @@ int main(int argc, char *argv[]) {
             if (strncmp(line_buf, "/msg ", 5) == 0) {
                 char target[NAME_LEN];
                 char msg[BUFFER_SIZE];
-                // Sử dụng width specifier để chống Buffer Overflow
+                // Defensive width specifiers to prevent buffer overflow
                 if (sscanf(line_buf + 5, "%31s %4095[^\n]", target, msg) == 2) {
                     PacketHeader hdr;
                     memset(&hdr, 0, sizeof(hdr));
@@ -168,9 +168,9 @@ int main(int argc, char *argv[]) {
 
                     send_all(sock_fd, &hdr, sizeof(hdr));
                     send_all(sock_fd, msg, hdr.payload_len);
-                    printf(ANSI_MAGENTA "[Bạn -> %s]: %s" ANSI_RESET "\n", target, msg);
+                    printf(ANSI_MAGENTA "[You -> %s]: %s" ANSI_RESET "\n", target, msg);
                 } else {
-                    printf(ANSI_RED "Sai cú pháp! Dùng: /msg <tên> <nội dung>" ANSI_RESET "\n");
+                    printf(ANSI_RED "Syntax error! Usage: /msg <target> <message>" ANSI_RESET "\n");
                 }
             } 
             else if (strncmp(line_buf, "/sendfile ", 10) == 0) {
@@ -179,7 +179,7 @@ int main(int argc, char *argv[]) {
                 if (sscanf(line_buf + 10, "%31s %255s", target, filepath) == 2) {
                     send_file(target, filepath);
                 } else {
-                    printf(ANSI_RED "Sai cú pháp! Dùng: /sendfile <tên> <đường_dẫn_file>" ANSI_RESET "\n");
+                    printf(ANSI_RED "Syntax error! Usage: /sendfile <target> <filepath>" ANSI_RESET "\n");
                 }
             } 
             else {
@@ -198,7 +198,7 @@ int main(int argc, char *argv[]) {
             PacketHeader hdr;
             int n = read_all(sock_fd, &hdr, sizeof(hdr));
             if (n <= 0) {
-                printf("\n" ANSI_RED "[MẤT KẾT NỐI] Server đã dừng hoạt động." ANSI_RESET "\n");
+                printf("\n" ANSI_RED "[DISCONNECTED] Server has terminated." ANSI_RESET "\n");
                 break;
             }
 
@@ -212,26 +212,31 @@ int main(int argc, char *argv[]) {
             }
 
             if (hdr.type == MSG_SYSTEM_NOTIFY && payload) {
-                printf(ANSI_YELLOW "[HỆ THỐNG] %s" ANSI_RESET "\n", payload);
+                printf(ANSI_YELLOW "[SYSTEM] %s" ANSI_RESET "\n", payload);
             } 
             else if (hdr.type == MSG_CHAT_PUBLIC && payload) {
                 printf(ANSI_GREEN "[%s]:" ANSI_RESET " %s\n", hdr.sender, payload);
             } 
             else if (hdr.type == MSG_CHAT_PRIVATE && payload) {
-                printf(ANSI_MAGENTA "[RIÊNG từ %s]: %s" ANSI_RESET "\n", hdr.sender, payload);
+                printf(ANSI_MAGENTA "[PRIVATE from %s]: %s" ANSI_RESET "\n", hdr.sender, payload);
             } 
             else if (hdr.type == MSG_FILE_START && payload) {
                 FileInfoPayload *fi = (FileInfoPayload *)payload;
                 rx_filesize = fi->filesize;
                 rx_received = 0;
-                snprintf(rx_filename, sizeof(rx_filename), "nhan_%s", fi->filename);
+
+                // Path Traversal Defense: strip directory separators
+                const char *clean_fname = strrchr(fi->filename, '/');
+                clean_fname = (clean_fname) ? clean_fname + 1 : fi->filename;
+
+                snprintf(rx_filename, sizeof(rx_filename), "nhan_%s", clean_fname);
                 if (rx_file) {
                     fclose(rx_file);
                     rx_file = NULL;
                 }
                 rx_file = fopen(rx_filename, "wb");
-                printf("\n" ANSI_CYAN "[FILE NHẬN] Đang nhận file '%s' (%lu bytes) từ [%s]..." ANSI_RESET "\n", 
-                       fi->filename, rx_filesize, hdr.sender);
+                printf("\n" ANSI_CYAN "[FILE_RECEIVE] Receiving file '%s' (%lu bytes) from [%s]..." ANSI_RESET "\n", 
+                       clean_fname, rx_filesize, hdr.sender);
             } 
             else if (hdr.type == MSG_FILE_DATA && payload) {
                 if (rx_file) {
@@ -244,7 +249,7 @@ int main(int argc, char *argv[]) {
                 if (rx_file) {
                     fclose(rx_file);
                     rx_file = NULL;
-                    printf(ANSI_GREEN "[HOÀN TẤT] File đã lưu thành: %s" ANSI_RESET "\n", rx_filename);
+                    printf(ANSI_GREEN "[COMPLETE] File saved successfully: %s" ANSI_RESET "\n", rx_filename);
                 }
             }
 
