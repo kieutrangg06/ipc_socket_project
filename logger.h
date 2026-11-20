@@ -15,21 +15,21 @@
 
 #define LOG_FILE "server.log"
 
-// Production-grade Double-Fork daemonization sequence
+// Production-grade POSIX double-fork daemonization sequence
 static inline void daemonize() {
     pid_t pid = fork();
     if (pid < 0) exit(EXIT_FAILURE);
-    if (pid > 0) exit(EXIT_SUCCESS); // Parent 1 exits, returning shell prompt
+    if (pid > 0) exit(EXIT_SUCCESS); // Parent 1 exits, returning prompt to terminal
 
-    if (setsid() < 0) exit(EXIT_FAILURE); // Detach from controlling TTY and create new session
+    if (setsid() < 0) exit(EXIT_FAILURE); // Create a new session, detach from controlling TTY
 
-    pid = fork(); // Second fork: guarantees process can never reacquire a TTY
+    pid = fork(); // Second fork: ensures the process is not a session leader (cannot reacquire TTY)
     if (pid < 0) exit(EXIT_FAILURE);
-    if (pid > 0) exit(EXIT_SUCCESS); // Session leader terminates
+    if (pid > 0) exit(EXIT_SUCCESS); // Parent 2 terminates
 
     umask(0);
 
-    // Redirect standard I/O descriptors to /dev/null
+    // Redirect stdin, stdout, stderr to /dev/null
     int fd = open("/dev/null", O_RDWR);
     if (fd >= 0) {
         dup2(fd, STDIN_FILENO);
@@ -39,17 +39,17 @@ static inline void daemonize() {
     }
 }
 
-// Process-safe audit logging protected by fcntl() advisory record locks
+// Concurrency-safe audit logging across independent processes via fcntl record locking
 static inline void write_server_log(const char *message) {
     int fd = open(LOG_FILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd < 0) return;
 
     struct flock fl;
     memset(&fl, 0, sizeof(fl));
-    fl.l_type = F_WRLCK; // Exclusive Write Lock
+    fl.l_type = F_WRLCK; // Exclusive write lock
     fl.l_whence = SEEK_SET;
     fl.l_start = 0;
-    fl.l_len = 0;        // Lock through EOF
+    fl.l_len = 0; // Lock through EOF
 
     if (fcntl(fd, F_SETLKW, &fl) != -1) {
         time_t now = time(NULL);
