@@ -13,7 +13,7 @@ RECEIVER_FIFO="benchmark_receiver.in"
 
 if [ ! -S /tmp/ipc_chat_system.sock ]; then
     echo "ERROR: Server is not running!"
-    echo "Please launch ./server -d before running the benchmark."
+    echo "Please launch ./server -d before running benchmarks."
     exit 1
 fi
 
@@ -33,7 +33,7 @@ mkfifo "$SENDER_FIFO" "$RECEIVER_FIFO"
 exec 3<> "$RECEIVER_FIFO"
 exec 4<> "$SENDER_FIFO"
 
-# Use unique nicknames BenchReceiver & BenchSender to avoid collision with live terminal clients
+# Use independent names BenchReceiver and BenchSender to avoid collision with interactive clients
 stdbuf -oL ./client BenchReceiver < "$RECEIVER_FIFO" > "$RECEIVER_LOG" 2>&1 &
 RX_PID=$!
 
@@ -54,8 +54,8 @@ trap cleanup EXIT INT TERM
 echo "Waiting for benchmark clients to connect..."
 CONNECTED=0
 for i in $(seq 1 100); do
-    if grep -q "Successfully connected" "$SENDER_LOG" &&
-       grep -q "Successfully connected" "$RECEIVER_LOG"; then
+    if grep -q "Connected successfully" "$SENDER_LOG" &&
+       grep -q "Connected successfully" "$RECEIVER_LOG"; then
         CONNECTED=1
         break
     fi
@@ -67,18 +67,18 @@ if [ "$CONNECTED" -ne 1 ]; then
     exit 1
 fi
 
-echo "Benchmark clients connected successfully."
+echo "Both benchmark clients connected successfully."
 echo "size_MiB,elapsed_seconds,throughput_MiB_per_sec,integrity" > "$RESULTS"
 
 for size in "${SIZES[@]}"; do
     FILE="test_${size}MB.bin"
-    RECEIVED="nhan_${FILE}"
+    RECEIVED="received_${FILE}"
     rm -f "$RECEIVED"
 
     SEND_BEFORE=$(grep -c "File sent successfully" "$SENDER_LOG" || true)
-    RECEIVE_BEFORE=$(grep -c "File saved successfully" "$RECEIVER_LOG" || true)
+    RECEIVE_BEFORE=$(grep -c "File saved to" "$RECEIVER_LOG" || true)
 
-    echo "Streaming payload ${size} MiB..."
+    echo "Streaming ${size} MiB payload..."
     START=$(date +%s.%N)
 
     printf '/sendfile BenchReceiver %s\n' "$FILE" >&4
@@ -86,7 +86,7 @@ for size in "${SIZES[@]}"; do
     DONE=0
     for i in $(seq 1 3600); do
         SEND_NOW=$(grep -c "File sent successfully" "$SENDER_LOG" || true)
-        RECEIVE_NOW=$(grep -c "File saved successfully" "$RECEIVER_LOG" || true)
+        RECEIVE_NOW=$(grep -c "File saved to" "$RECEIVER_LOG" || true)
 
         if [ "$SEND_NOW" -gt "$SEND_BEFORE" ] && [ "$RECEIVE_NOW" -gt "$RECEIVE_BEFORE" ]; then
             DONE=1
@@ -94,7 +94,7 @@ for size in "${SIZES[@]}"; do
         fi
 
         if ! kill -0 "$TX_PID" 2>/dev/null || ! kill -0 "$RX_PID" 2>/dev/null; then
-            echo "ERROR: Benchmark client terminated unexpectedly."
+            echo "ERROR: Client terminated unexpectedly."
             exit 1
         fi
         sleep 0.1
@@ -103,7 +103,7 @@ for size in "${SIZES[@]}"; do
     END=$(date +%s.%N)
 
     if [ "$DONE" -ne 1 ]; then
-        echo "ERROR: Timeout streaming ${size} MiB payload."
+        echo "ERROR: Timeout transferring ${size} MiB payload."
         exit 1
     fi
 
@@ -117,8 +117,8 @@ for size in "${SIZES[@]}"; do
     fi
 
     echo "${size},${ELAPSED},${SPEED},${INTEGRITY}" >> "$RESULTS"
-    echo " -> Completed: ${size} MiB in ${ELAPSED}s | Throughput: ${SPEED} MiB/s | Verification: ${INTEGRITY}"
+    echo " -> Completed: ${size} MiB in ${ELAPSED}s | Throughput: ${SPEED} MiB/s | Integrity: ${INTEGRITY}"
     echo
 done
 
-echo "Benchmark completed! Results recorded in: $RESULTS"
+echo "Benchmark completed! Results saved to: $RESULTS"
