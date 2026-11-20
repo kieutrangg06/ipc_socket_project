@@ -12,14 +12,14 @@ SENDER_FIFO="benchmark_sender.in"
 RECEIVER_FIFO="benchmark_receiver.in"
 
 if [ ! -S /tmp/ipc_chat_system.sock ]; then
-    echo "ERROR: Server chua chay!"
-    echo "Hay khoi dong ./server -d truoc khi chay benchmark."
+    echo "ERROR: Server is not running!"
+    echo "Please launch ./server -d before running the benchmark."
     exit 1
 fi
 
 for size in "${SIZES[@]}"; do
     if [ ! -f "test_${size}MB.bin" ]; then
-        echo "Tao file mau test_${size}MB.bin..."
+        echo "Generating synthetic payload test_${size}MB.bin..."
         head -c "${size}M" /dev/urandom > "test_${size}MB.bin"
     fi
 done
@@ -33,7 +33,7 @@ mkfifo "$SENDER_FIFO" "$RECEIVER_FIFO"
 exec 3<> "$RECEIVER_FIFO"
 exec 4<> "$SENDER_FIFO"
 
-# Sử dụng tên độc lập BenchReceiver và BenchSender để không bị trùng tên với Client đang mở ở Ô 2, Ô 3
+# Use unique nicknames BenchReceiver & BenchSender to avoid collision with live terminal clients
 stdbuf -oL ./client BenchReceiver < "$RECEIVER_FIFO" > "$RECEIVER_LOG" 2>&1 &
 RX_PID=$!
 
@@ -51,11 +51,11 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "Dang cho hai client benchmark ket noi..."
+echo "Waiting for benchmark clients to connect..."
 CONNECTED=0
 for i in $(seq 1 100); do
-    if grep -q "Đã kết nối thành công" "$SENDER_LOG" &&
-       grep -q "Đã kết nối thành công" "$RECEIVER_LOG"; then
+    if grep -q "Successfully connected" "$SENDER_LOG" &&
+       grep -q "Successfully connected" "$RECEIVER_LOG"; then
         CONNECTED=1
         break
     fi
@@ -63,11 +63,11 @@ for i in $(seq 1 100); do
 done
 
 if [ "$CONNECTED" -ne 1 ]; then
-    echo "ERROR: Client benchmark khong ket noi duoc."
+    echo "ERROR: Benchmark clients failed to connect."
     exit 1
 fi
 
-echo "Hai client benchmark da ket noi thanh cong."
+echo "Benchmark clients connected successfully."
 echo "size_MiB,elapsed_seconds,throughput_MiB_per_sec,integrity" > "$RESULTS"
 
 for size in "${SIZES[@]}"; do
@@ -75,18 +75,18 @@ for size in "${SIZES[@]}"; do
     RECEIVED="nhan_${FILE}"
     rm -f "$RECEIVED"
 
-    SEND_BEFORE=$(grep -c "Đã gửi file thành công" "$SENDER_LOG" || true)
-    RECEIVE_BEFORE=$(grep -c "File đã lưu thành" "$RECEIVER_LOG" || true)
+    SEND_BEFORE=$(grep -c "File sent successfully" "$SENDER_LOG" || true)
+    RECEIVE_BEFORE=$(grep -c "File saved successfully" "$RECEIVER_LOG" || true)
 
-    echo "Dang truyen file ${size} MiB..."
+    echo "Streaming payload ${size} MiB..."
     START=$(date +%s.%N)
 
     printf '/sendfile BenchReceiver %s\n' "$FILE" >&4
 
     DONE=0
     for i in $(seq 1 3600); do
-        SEND_NOW=$(grep -c "Đã gửi file thành công" "$SENDER_LOG" || true)
-        RECEIVE_NOW=$(grep -c "File đã lưu thành" "$RECEIVER_LOG" || true)
+        SEND_NOW=$(grep -c "File sent successfully" "$SENDER_LOG" || true)
+        RECEIVE_NOW=$(grep -c "File saved successfully" "$RECEIVER_LOG" || true)
 
         if [ "$SEND_NOW" -gt "$SEND_BEFORE" ] && [ "$RECEIVE_NOW" -gt "$RECEIVE_BEFORE" ]; then
             DONE=1
@@ -94,7 +94,7 @@ for size in "${SIZES[@]}"; do
         fi
 
         if ! kill -0 "$TX_PID" 2>/dev/null || ! kill -0 "$RX_PID" 2>/dev/null; then
-            echo "ERROR: Client da dung dot ngot."
+            echo "ERROR: Benchmark client terminated unexpectedly."
             exit 1
         fi
         sleep 0.1
@@ -103,7 +103,7 @@ for size in "${SIZES[@]}"; do
     END=$(date +%s.%N)
 
     if [ "$DONE" -ne 1 ]; then
-        echo "ERROR: Timeout file ${size} MiB."
+        echo "ERROR: Timeout streaming ${size} MiB payload."
         exit 1
     fi
 
@@ -117,8 +117,8 @@ for size in "${SIZES[@]}"; do
     fi
 
     echo "${size},${ELAPSED},${SPEED},${INTEGRITY}" >> "$RESULTS"
-    echo " -> Hoan tat: ${size} MiB trong ${ELAPSED}s | Toc do: ${SPEED} MiB/s | Kiem tra: ${INTEGRITY}"
+    echo " -> Completed: ${size} MiB in ${ELAPSED}s | Throughput: ${SPEED} MiB/s | Verification: ${INTEGRITY}"
     echo
 done
 
-echo "Benchmark hoan tat! Ket qua luu tai: $RESULTS"
+echo "Benchmark completed! Results recorded in: $RESULTS"
