@@ -46,7 +46,7 @@ void send_file(const char *target, const char *filepath) {
 
     struct stat st;
     if (stat(filepath, &st) < 0) {
-        perror("File stat error");
+        perror("Stat file error");
         fclose(f);
         return;
     }
@@ -70,7 +70,7 @@ void send_file(const char *target, const char *filepath) {
     send_all(sock_fd, &hdr, sizeof(hdr));
     send_all(sock_fd, &finfo, sizeof(finfo));
 
-    printf(ANSI_CYAN "[FILE_SEND] Initiating file transmission: '%s' (%lu bytes) to [%s]..." ANSI_RESET "\n", 
+    printf(ANSI_CYAN "[FILE TRANSFER] Sending file '%s' (%lu bytes) to [%s]..." ANSI_RESET "\n", 
            base_filename, total_size, target);
 
     char buffer[CHUNK_SIZE];
@@ -85,7 +85,7 @@ void send_file(const char *target, const char *filepath) {
 
         total_sent += bytes_read;
         draw_progress_bar(total_sent, total_size);
-        usleep(400); // Visual pacing: throttles rendering speed for smooth ANSI terminal UI
+        usleep(400); // Visual pacing: throttles rendering speed for smooth ANSI display
     }
     fclose(f);
 
@@ -93,7 +93,7 @@ void send_file(const char *target, const char *filepath) {
     hdr.payload_len = 0;
     send_all(sock_fd, &hdr, sizeof(hdr));
 
-    printf(ANSI_GREEN "[FILE_SEND] File sent successfully!" ANSI_RESET "\n");
+    printf(ANSI_GREEN "[FILE TRANSFER] File sent successfully!" ANSI_RESET "\n");
 }
 
 int main(int argc, char *argv[]) {
@@ -105,7 +105,7 @@ int main(int argc, char *argv[]) {
 
     sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sock_fd < 0) {
-        perror("Socket creation failed");
+        perror("Socket creation error");
         exit(EXIT_FAILURE);
     }
 
@@ -115,7 +115,7 @@ int main(int argc, char *argv[]) {
     snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", SOCKET_PATH);
 
     if (connect(sock_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        perror("Connection to server failed (Is server running?)");
+        perror("Connection to Server failed (Is server running?)");
         close(sock_fd);
         exit(EXIT_FAILURE);
     }
@@ -127,11 +127,11 @@ int main(int argc, char *argv[]) {
     snprintf(login_hdr.sender, sizeof(login_hdr.sender), "%s", my_name);
     send_all(sock_fd, &login_hdr, sizeof(login_hdr));
 
-    printf(ANSI_GREEN "Successfully connected with Nickname: %s" ANSI_RESET "\n", my_name);
-    printf("Command Usage:\n");
-    printf(" - Public chat:     Type message and press Enter\n");
-    printf(" - Private whisper: " ANSI_YELLOW "/msg <target> <message>" ANSI_RESET "\n");
-    printf(" - File transfer:   " ANSI_YELLOW "/sendfile <target> <filepath>" ANSI_RESET "\n\n");
+    printf(ANSI_GREEN "Connected successfully with Nickname: %s" ANSI_RESET "\n", my_name);
+    printf("Commands:\n");
+    printf(" - Public chat:  Type message and press Enter\n");
+    printf(" - Private chat: " ANSI_YELLOW "/msg <target> <message>" ANSI_RESET "\n");
+    printf(" - Send file:    " ANSI_YELLOW "/sendfile <target> <file_path>" ANSI_RESET "\n\n");
 
     struct pollfd pfds[2];
     pfds[0].fd = STDIN_FILENO;
@@ -157,7 +157,7 @@ int main(int argc, char *argv[]) {
             if (strncmp(line_buf, "/msg ", 5) == 0) {
                 char target[NAME_LEN];
                 char msg[BUFFER_SIZE];
-                // Defensive width specifiers to prevent buffer overflow
+                // Width specifier prevents buffer overflow attacks
                 if (sscanf(line_buf + 5, "%31s %4095[^\n]", target, msg) == 2) {
                     PacketHeader hdr;
                     memset(&hdr, 0, sizeof(hdr));
@@ -170,7 +170,7 @@ int main(int argc, char *argv[]) {
                     send_all(sock_fd, msg, hdr.payload_len);
                     printf(ANSI_MAGENTA "[You -> %s]: %s" ANSI_RESET "\n", target, msg);
                 } else {
-                    printf(ANSI_RED "Syntax error! Usage: /msg <target> <message>" ANSI_RESET "\n");
+                    printf(ANSI_RED "Syntax error! Use: /msg <target> <message>" ANSI_RESET "\n");
                 }
             } 
             else if (strncmp(line_buf, "/sendfile ", 10) == 0) {
@@ -179,7 +179,7 @@ int main(int argc, char *argv[]) {
                 if (sscanf(line_buf + 10, "%31s %255s", target, filepath) == 2) {
                     send_file(target, filepath);
                 } else {
-                    printf(ANSI_RED "Syntax error! Usage: /sendfile <target> <filepath>" ANSI_RESET "\n");
+                    printf(ANSI_RED "Syntax error! Use: /sendfile <target> <file_path>" ANSI_RESET "\n");
                 }
             } 
             else {
@@ -198,7 +198,7 @@ int main(int argc, char *argv[]) {
             PacketHeader hdr;
             int n = read_all(sock_fd, &hdr, sizeof(hdr));
             if (n <= 0) {
-                printf("\n" ANSI_RED "[DISCONNECTED] Server has terminated." ANSI_RESET "\n");
+                printf("\n" ANSI_RED "[DISCONNECTED] Server stopped." ANSI_RESET "\n");
                 break;
             }
 
@@ -224,18 +224,18 @@ int main(int argc, char *argv[]) {
                 FileInfoPayload *fi = (FileInfoPayload *)payload;
                 rx_filesize = fi->filesize;
                 rx_received = 0;
-
-                // Path Traversal Defense: strip directory separators
+                
+                // Defend against Path Traversal vulnerabilities
                 const char *clean_fname = strrchr(fi->filename, '/');
                 clean_fname = (clean_fname) ? clean_fname + 1 : fi->filename;
 
-                snprintf(rx_filename, sizeof(rx_filename), "nhan_%s", clean_fname);
+                snprintf(rx_filename, sizeof(rx_filename), "received_%s", clean_fname);
                 if (rx_file) {
                     fclose(rx_file);
                     rx_file = NULL;
                 }
                 rx_file = fopen(rx_filename, "wb");
-                printf("\n" ANSI_CYAN "[FILE_RECEIVE] Receiving file '%s' (%lu bytes) from [%s]..." ANSI_RESET "\n", 
+                printf("\n" ANSI_CYAN "[FILE RECEIVE] Receiving file '%s' (%lu bytes) from [%s]..." ANSI_RESET "\n", 
                        clean_fname, rx_filesize, hdr.sender);
             } 
             else if (hdr.type == MSG_FILE_DATA && payload) {
@@ -249,7 +249,7 @@ int main(int argc, char *argv[]) {
                 if (rx_file) {
                     fclose(rx_file);
                     rx_file = NULL;
-                    printf(ANSI_GREEN "[COMPLETE] File saved successfully: %s" ANSI_RESET "\n", rx_filename);
+                    printf(ANSI_GREEN "[COMPLETED] File saved to: %s" ANSI_RESET "\n", rx_filename);
                 }
             }
 
