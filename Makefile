@@ -10,6 +10,6 @@ client: client.c protocol.h
 	$(CC) $(CFLAGS) client.c -o client
 
 clean:
-	rm -f server client /tmp/ipc_chat_system.sock *.bin nhan_* *.log *.csv *.in
+	rm -f server client /tmp/ipc_chat_system.sock *.bin received_* nhan_* *.log *.csv *.in
 
 .PHONY: all clean
