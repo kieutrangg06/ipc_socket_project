@@ -33,8 +33,8 @@ void server_log(const char *level, const char *msg) {
 
 void clean_up(int sig) {
     (void)sig;
-    write_server_log("[SERVER] Dọn dẹp tài nguyên và tắt Server.");
-    printf("\n" ANSI_YELLOW "[SERVER] Đang dọn dẹp tài nguyên và tắt Server..." ANSI_RESET "\n");
+    write_server_log("[SERVER] Reclaiming system resources and shutting down server.");
+    printf("\n" ANSI_YELLOW "[SERVER] Reclaiming system resources and shutting down server..." ANSI_RESET "\n");
     if (server_fd != -1) close(server_fd);
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].active && clients[i].fd != -1) {
@@ -62,7 +62,7 @@ void broadcast_system(const char *msg) {
     }
 }
 
-// Bỏ qua phần payload lỗi để bảo vệ tính đồng bộ Framing của luồng Socket
+// Drain unhandled payload bytes to preserve stream framing integrity
 static void drain_socket(int fd, size_t len) {
     char junk[1024];
     while (len > 0) {
@@ -78,16 +78,16 @@ int main(int argc, char *argv[]) {
         daemonize();
     }
 
-    write_server_log("Server đã khởi động thành công!");
+    write_server_log("Server initialized and started successfully!");
     signal(SIGINT, clean_up);
     signal(SIGTERM, clean_up);
-    signal(SIGPIPE, SIG_IGN); // Bỏ qua SIGPIPE tránh crash tiến trình khi ghi vào socket đã đóng
+    signal(SIGPIPE, SIG_IGN); // Suppress SIGPIPE to avoid crashes on closed client sockets
 
     unlink(SOCKET_PATH);
 
     server_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (server_fd < 0) {
-        perror("Tạo Socket thất bại");
+        perror("Socket creation failed");
         exit(EXIT_FAILURE);
     }
 
@@ -97,20 +97,20 @@ int main(int argc, char *argv[]) {
     snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", SOCKET_PATH);
 
     if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        perror("Bind thất bại");
+        perror("Bind failed");
         close(server_fd);
         exit(EXIT_FAILURE);
     }
 
     if (listen(server_fd, 10) < 0) {
-        perror("Listen thất bại");
+        perror("Listen failed");
         close(server_fd);
         exit(EXIT_FAILURE);
     }
 
     printf(ANSI_GREEN "==========================================================" ANSI_RESET "\n");
     char start_msg[256];
-    snprintf(start_msg, sizeof(start_msg), "IPC Socket Server đang chạy tại: %s", SOCKET_PATH);
+    snprintf(start_msg, sizeof(start_msg), "IPC Socket Server listening at: %s", SOCKET_PATH);
     server_log("SERVER", start_msg);
     printf(ANSI_GREEN "==========================================================" ANSI_RESET "\n");
 
@@ -139,7 +139,7 @@ int main(int argc, char *argv[]) {
             break;
         }
 
-        // Chấp nhận kết nối mới
+        // Accept incoming client connections
         if (fds[0].revents & POLLIN) {
             int new_fd = accept(server_fd, NULL, NULL);
             if (new_fd >= 0) {
@@ -157,16 +157,16 @@ int main(int argc, char *argv[]) {
                     snprintf(clients[slot].name, NAME_LEN, "User%d", new_fd);
 
                     char connect_msg[128];
-                    snprintf(connect_msg, sizeof(connect_msg), "Client FD %d đã kết nối.", new_fd);
+                    snprintf(connect_msg, sizeof(connect_msg), "Client FD %d connected.", new_fd);
                     server_log("CONNECT", connect_msg);
                 } else {
-                    server_log("SERVER", "Đã đạt giới hạn Client, từ chối kết nối!");
+                    server_log("SERVER", "Connection rejected: Max clients reached!");
                     close(new_fd);
                 }
             }
         }
 
-        // Xử lý sự kiện từ các Client
+        // Dispatch I/O events from active clients
         int cur_idx = 1;
         for (int i = 0; i < MAX_CLIENTS; i++) {
             if (!clients[i].active) continue;
@@ -177,7 +177,7 @@ int main(int argc, char *argv[]) {
 
                 if (n <= 0) {
                     char leave_msg[128];
-                    snprintf(leave_msg, sizeof(leave_msg), "Thành viên [%s] đã rời phòng.", clients[i].name);
+                    snprintf(leave_msg, sizeof(leave_msg), "User [%s] disconnected.", clients[i].name);
                     server_log("DISCONNECT", leave_msg);
 
                     close(clients[i].fd);
@@ -202,7 +202,7 @@ int main(int argc, char *argv[]) {
                     }
 
                     if (hdr.type == MSG_LOGIN) {
-                        // Kiểm tra trùng Nickname
+                        // Check for duplicate nicknames
                         int duplicate = 0;
                         for (int j = 0; j < MAX_CLIENTS; j++) {
                             if (clients[j].active && j != i && strcmp(clients[j].name, hdr.sender) == 0) {
@@ -212,14 +212,14 @@ int main(int argc, char *argv[]) {
                         }
 
                         if (duplicate) {
-                            // Tự động thêm hậu tố phân biệt nếu bị trùng
-                           snprintf(clients[i].name, sizeof(clients[i].name), "%.20s_%d", hdr.sender, clients[i].fd);
+                            // Auto-rename with socket descriptor suffix to avoid collision
+                            snprintf(clients[i].name, sizeof(clients[i].name), "%.20s_%d", hdr.sender, clients[i].fd);
                         } else {
                             snprintf(clients[i].name, sizeof(clients[i].name), "%s", hdr.sender);
                         }
 
                         char join_msg[128];
-                        snprintf(join_msg, sizeof(join_msg), "Chào mừng [%s] tham gia hệ thống!", clients[i].name);
+                        snprintf(join_msg, sizeof(join_msg), "Welcome [%s] to the IPC chat room!", clients[i].name);
                         server_log("LOGIN", join_msg);
                         broadcast_system(join_msg);
                     }
@@ -254,7 +254,7 @@ int main(int argc, char *argv[]) {
 
                         if (!sent && hdr.type == MSG_CHAT_PRIVATE) {
                             char err_msg[128];
-                            snprintf(err_msg, sizeof(err_msg), "Không tìm thấy người dùng [%s].", hdr.target);
+                            snprintf(err_msg, sizeof(err_msg), "Target user [%s] not found or offline.", hdr.target);
 
                             PacketHeader err_hdr;
                             memset(&err_hdr, 0, sizeof(err_hdr));
