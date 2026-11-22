@@ -20,6 +20,7 @@ static FILE *rx_file = NULL;
 static uint64_t rx_filesize = 0;
 static uint64_t rx_received = 0;
 static char rx_filename[128];
+static int raw_mode = 0;
 
 void draw_progress_bar(uint64_t current, uint64_t total) {
     int bar_width = 30;
@@ -85,7 +86,9 @@ void send_file(const char *target, const char *filepath) {
 
         total_sent += bytes_read;
         draw_progress_bar(total_sent, total_size);
-        usleep(400); // Visual pacing: throttles rendering speed for smooth ANSI display
+        if (!raw_mode) {
+            usleep(400); // Visual pacing: throttles rendering speed for smooth ANSI display
+        }
     }
     fclose(f);
 
@@ -98,10 +101,16 @@ void send_file(const char *target, const char *filepath) {
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        printf("Usage: %s <Nickname>\n", argv[0]);
+        printf("Usage: %s <Nickname> [--raw]\n", argv[0]);
         return 1;
     }
     snprintf(my_name, sizeof(my_name), "%s", argv[1]);
+    if (argc > 2 && strcmp(argv[2], "--raw") == 0) {
+        raw_mode = 1;
+    }
+    if (getenv("RAW_MODE") != NULL && strcmp(getenv("RAW_MODE"), "1") == 0) {
+        raw_mode = 1;
+    }
 
     sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sock_fd < 0) {
