@@ -11,6 +11,12 @@ RESULTS="benchmark_results.csv"
 SENDER_FIFO="benchmark_sender.in"
 RECEIVER_FIFO="benchmark_receiver.in"
 
+RAW_FLAG=""
+if [ "${1:-}" = "--raw" ]; then
+    RAW_FLAG="--raw"
+    export RAW_MODE=1
+fi
+
 if [ ! -S /tmp/ipc_chat_system.sock ]; then
     echo "ERROR: Server is not running!"
     echo "Please launch ./server -d before running benchmarks."
@@ -39,7 +45,7 @@ RX_PID=$!
 
 sleep 0.5
 
-stdbuf -oL ./client BenchSender < "$SENDER_FIFO" > "$SENDER_LOG" 2>&1 &
+stdbuf -oL ./client BenchSender $RAW_FLAG < "$SENDER_FIFO" > "$SENDER_LOG" 2>&1 &
 TX_PID=$!
 
 cleanup() {
